@@ -1,0 +1,3 @@
+# nombre|descripcion|carpeta   (una linea por entorno; la carpeta tiene un .pdk con su PDK)
+sky130|Skywater 130 - PDK 2021 de la VM del curso|~/sky130
+ihp|IHP SG13G2 - PDK del contenedor iic-osic-tools|~/ihp

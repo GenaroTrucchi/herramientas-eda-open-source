@@ -1,0 +1,4 @@
+# Carga la tecnologia del PDK activo ($PDK)
+if {[info exists env(PDK_ROOT)] && [info exists env(PDK)]} {
+  source $env(PDK_ROOT)/$env(PDK)/libs.tech/magic/$env(PDK).magicrc
+}

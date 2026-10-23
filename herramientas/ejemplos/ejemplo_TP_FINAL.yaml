@@ -1,0 +1,91 @@
+# =====================================================================
+#  Optimizacion del opamp de TP_FINAL (Curso DACI, sky130 2021)
+#  EJEMPLO: los nombres de instancias (opamp.XM1, ...) son los del opamp de
+#  un TP_FINAL concreto; adaptalos a tu esquematico (ver ~/herramientas/LEEME.md).
+#  Correr:   cd ~/sky130/Curso_DACI/optimizacion
+#            optimizar ejemplo_TP_FINAL.yaml --evaluar   (solo el diseno actual)
+#            optimizar ejemplo_TP_FINAL.yaml             (optimizar)
+# =====================================================================
+
+# ---- Testbenches: de donde salen las mediciones ---------------------
+# Se netlistean con xschem al arrancar. Las mediciones son los 'meas' / 'print'
+# del bloque .control del testbench (lo que ngspice imprime como "nombre = valor").
+testbenches:
+  - nombre: ol
+    esquematico: ../sch/TP_FINAL/tb_opamp_openloop.sch
+    xschemrc: ../sch/xschemrc
+  # se pueden agregar mas, ej. el de lazo cerrado:
+  # - nombre: cl
+  #   esquematico: ../sch/TP_FINAL/tb_opamp_closeloop.sch
+  #   xschemrc: ../sch/xschemrc
+
+# ---- Corners: cada diseno se simula en TODOS -------------------------
+corners:
+  lib_patron: sky130.lib        # linea .lib donde se cambia el corner (TT/FF/SS)
+  lista:
+    - {nombre: tt, lib: TT, temp: 27,  params: {vdd: 1.8}}
+    - {nombre: ff, lib: FF, temp: -40, params: {vdd: 1.98}}
+    - {nombre: ss, lib: SS, temp: 125, params: {vdd: 1.62}}
+
+# ---- Parametros a variar ----------------------------------------------
+# instancias: nombre en el netlist (subcircuito.instancia). En xschem el M1 de
+#   opamp.sch aparece como XM1 dentro del subcircuito 'opamp'.
+# atributo: W, L, nf, mult (o 'valor' para C/R)   |   param: <nombre de un .param>
+# escala: log (default) o lin  |  paso: grilla  |  tipo: int para enteros
+# Instancias en la misma lista quedan iguales (apareamiento).
+parametros:
+  # par diferencial M1/M2 (pfet lvt)
+  W_dif:   {instancias: [opamp.XM1, opamp.XM2], atributo: W,    min: 2,    max: 100, paso: 0.01}
+  L_dif:   {instancias: [opamp.XM1, opamp.XM2], atributo: L,    min: 0.35, max: 2,   paso: 0.01}
+  m_dif:   {instancias: [opamp.XM1, opamp.XM2], atributo: mult, min: 1,    max: 40,  tipo: int}
+  # carga espejo M3/M4 (nfet)
+  W_carga: {instancias: [opamp.XM3, opamp.XM4], atributo: W,    min: 1,    max: 100, paso: 0.01}
+  L_carga: {instancias: [opamp.XM3, opamp.XM4], atributo: L,    min: 0.15, max: 2,   paso: 0.01}
+  m_carga: {instancias: [opamp.XM3, opamp.XM4], atributo: mult, min: 1,    max: 16,  tipo: int}
+  # fuentes de corriente pfet: M8 (referencia), M5 (cola), M7 (2da etapa). Mismo W/L -> espejos
+  W_fte:   {instancias: [opamp.XM5, opamp.XM7, opamp.XM8], atributo: W, min: 1,    max: 100, paso: 0.01}
+  L_fte:   {instancias: [opamp.XM5, opamp.XM7, opamp.XM8], atributo: L, min: 0.35, max: 2,   paso: 0.01}
+  m_cola:  {instancias: [opamp.XM5], atributo: mult, min: 2, max: 40, tipo: int}
+  m_out:   {instancias: [opamp.XM7], atributo: mult, min: 2, max: 40, tipo: int}
+  # 2da etapa M6 (fuente comun nfet)
+  W_cs:    {instancias: [opamp.XM6], atributo: W,    min: 1,    max: 100, paso: 0.01}
+  L_cs:    {instancias: [opamp.XM6], atributo: L,    min: 0.15, max: 2,   paso: 0.01}
+  m_cs:    {instancias: [opamp.XM6], atributo: mult, min: 1,    max: 32,  tipo: int}
+  # M9 = resistencia de anulacion del cero (triodo) y capacitor de Miller C1
+  W_rz:    {instancias: [opamp.XM9], atributo: W,    min: 0.5,  max: 50,  paso: 0.01}
+  L_rz:    {instancias: [opamp.XM9], atributo: L,    min: 0.15, max: 2,   paso: 0.01}
+  Cc:      {instancias: [opamp.C1],  atributo: valor, min: 0.5p, max: 20p}
+  # corriente de polarizacion (es un .param del testbench)
+  iref:    {param: iref, min: 5u, max: 150u}
+  # ejemplo de parametro derivado (no se optimiza, se calcula):
+  # W_M8:  {instancias: [opamp.XM8], atributo: W, expr: "w_fte/2"}
+
+# ---- Metricas derivadas (expresiones sobre lo que imprime ngspice) ------
+mediciones:
+  pm_deg: "pm*180/pi"           # el meas PM del testbench esta en radianes
+
+# Potencia: -I*V de estas fuentes en el punto de operacion -> metrica 'potencia' [W]
+potencia: {testbench: ol, fuentes: [V2]}
+
+# Saturacion: |vds| - |vdsat| >= margen [V] para cada transistor, en cada corner.
+# M9 trabaja en triodo (es una resistencia) -> se excluye.
+saturacion: {testbench: ol, margen: 0.05, excluir: [x1.xm9]}
+
+# ---- Especificaciones: se tienen que cumplir en TODOS los corners -------
+# (o solo en los listados con 'corners: [tt, ss]')
+especificaciones:
+  dcg:     {min: 50}            # ganancia DC [dB]
+  gbw:     {min: 50e6}          # [Hz]
+  pm_deg:  {min: 60, max: 90}   # margen de fase [grados]
+  # area:  {max: 15000}         # area activa sum(W*L*mult) [um2]
+  # potencia: {max: 2m}
+
+# ---- Que se optimiza (en el peor corner) ----------------------------------
+objetivo: {expr: potencia, sentido: min}
+# otras ideas: {expr: "gbw*20e-12/potencia", sentido: max}   (FoM de eficiencia)
+
+algoritmo:
+  max_evaluaciones: 6000        # disenos (cada uno = 3 corners)
+  generaciones_sin_mejora: 40
+  # procesos: 8                 # simulaciones en paralelo (default: nucleos - 2)
+  semilla: 1
